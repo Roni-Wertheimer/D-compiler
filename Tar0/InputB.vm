@@ -1,0 +1,10 @@
+pop that 2
+push constant 3
+lt
+pop pointer 1
+push constant 43
+push local 4
+neg
+sub
+eq
+
