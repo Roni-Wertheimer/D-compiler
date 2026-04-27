@@ -1,19 +1,16 @@
-/*
- Aharon wertheimer 206447773
- Moshe shushan 316314731
-*/
-
 import std.stdio;
 import std.string;
 import std.path;
 import std.file;
 import std.array;
-import std.conv; // For converting numbers to strings
+import std.conv;
 
-// Global variables
+// משתנים גלובאליים
 string currentFileName;
+string currentFunctionName = ""; // שומר את שם הפונקציה הנוכחית כדי לייצר תוויות ייחודיות
 File outFile;
-int logicCounter = 0; // Counter for generating unique jump labels
+int logicCounter = 0; 
+int callCounter = 0; // מונה לייצור תוויות חזרה ייחודיות עבור פונקציות
 
 void main() {
     write("Please enter the directory path: ");
@@ -29,6 +26,12 @@ void main() {
     
     outFile = File(outFilePath, "w");
 
+    // בדיקה חכמה: האם להוסיף קוד אתחול? (רק אם יש פונקציית Sys.init)
+    bool needsBootstrap = exists(buildPath(dirPath, "Sys.vm"));
+    if (needsBootstrap) {
+        writeInit();
+    }
+
     foreach (string entry; dirEntries(dirPath, "*.vm", SpanMode.shallow)) {
         currentFileName = baseName(entry, ".vm");
         File inFile = File(entry, "r");
@@ -36,22 +39,20 @@ void main() {
         foreach (line; inFile.byLine()) {
             string cleanLine = line.idup;
             
-            // Strip comments from the line (if any)
             auto commentPos = cleanLine.indexOf("//");
             if (commentPos != -1) {
                 cleanLine = cleanLine[0 .. commentPos];
             }
             
             auto words = cleanLine.split(); 
-            if (words.length == 0) continue; // Skip empty lines
+            if (words.length == 0) continue; 
 
             string command = words[0];
 
-            // Write a comment in the asm file for readability and debugging
             outFile.writeln("// " ~ cleanLine.strip());
 
             switch(command) {
-                // Arithmetic and Logic
+                // אריתמטיקה ולוגיקה
                 case "add": handleArithmetic("M=D+M"); break;
                 case "sub": handleArithmetic("M=M-D"); break;
                 case "and": handleArithmetic("M=D&M"); break;
@@ -62,13 +63,36 @@ void main() {
                 case "gt":  handleCompare("JGT"); break;
                 case "lt":  handleCompare("JLT"); break;
                 
-                // Memory Access
+                // גישה לזיכרון
                 case "push": 
                     if (words.length >= 3) handlePush(words[1], words[2]); 
                     break;
                 case "pop": 
                     if (words.length >= 3) handlePop(words[1], words[2]); 
                     break;
+
+                // בקרת זרימה (Branching)
+                case "label":
+                    if (words.length >= 2) handleLabel(words[1]);
+                    break;
+                case "goto":
+                    if (words.length >= 2) handleGoto(words[1]);
+                    break;
+                case "if-goto":
+                    if (words.length >= 2) handleIfGoto(words[1]);
+                    break;
+
+                // פונקציות (Functions)
+                case "function":
+                    if (words.length >= 3) handleFunction(words[1], words[2]);
+                    break;
+                case "call":
+                    if (words.length >= 3) handleCall(words[1], words[2]);
+                    break;
+                case "return":
+                    handleReturn();
+                    break;
+
                 default: break;
             }
         }
@@ -80,22 +104,54 @@ void main() {
     writeln("Output file is ready: ", dirName, ".asm");
 }
 
+// ==========================================
+// פונקציות עזר 
+// ==========================================
 
+void writeInit() {
+    outFile.writeln("// Bootstrapping");
+    outFile.writeln("@256");
+    outFile.writeln("D=A");
+    outFile.writeln("@SP");
+    outFile.writeln("M=D");
+    handleCall("Sys.init", "0");
+}
 
-//Arithmetic and Logic 
+string formatLabel(string label) {
+    if (currentFunctionName.length > 0) {
+        return currentFunctionName ~ "$" ~ label;
+    }
+    return label;
+}
+
+void pushD() {
+    outFile.writeln("@SP");
+    outFile.writeln("A=M");
+    outFile.writeln("M=D");
+    outFile.writeln("@SP");
+    outFile.writeln("M=M+1");
+}
+
+void popToD() {
+    outFile.writeln("@SP");
+    outFile.writeln("AM=M-1");
+    outFile.writeln("D=M");
+}
+
+// --- אריתמטיקה ולוגיקה ---
 
 void handleArithmetic(string op) {
     outFile.writeln("@SP");
-    outFile.writeln("AM=M-1"); // y
+    outFile.writeln("AM=M-1"); 
     outFile.writeln("D=M");
-    outFile.writeln("A=A-1");  // x
-    outFile.writeln(op);       // Perform the operation
+    outFile.writeln("A=A-1");  
+    outFile.writeln(op);       
 }
 
 void handleUnary(string op) {
     outFile.writeln("@SP");
-    outFile.writeln("A=M-1"); // Access the top element without changing SP
-    outFile.writeln(op);      // Perform the operation
+    outFile.writeln("A=M-1"); 
+    outFile.writeln(op);      
 }
 
 void handleCompare(string jumpType) {
@@ -105,28 +161,28 @@ void handleCompare(string jumpType) {
 
     outFile.writeln("@SP");
     outFile.writeln("AM=M-1");
-    outFile.writeln("D=M");     // y
+    outFile.writeln("D=M");     
     outFile.writeln("A=A-1");
-    outFile.writeln("D=M-D");   // x - y
+    outFile.writeln("D=M-D");   
 
     outFile.writeln("@" ~ labelTrue);
-    outFile.writeln("D;" ~ jumpType); // Jump if condition is met
+    outFile.writeln("D;" ~ jumpType); 
 
-    outFile.writeln("@SP");     // False case
+    outFile.writeln("@SP");     
     outFile.writeln("A=M-1");
-    outFile.writeln("M=0");     // 0 represents False
+    outFile.writeln("M=0");     
     outFile.writeln("@" ~ labelEnd);
     outFile.writeln("0;JMP");
 
     outFile.writeln("(" ~ labelTrue ~ ")");
-    outFile.writeln("@SP");     // True case
+    outFile.writeln("@SP");     
     outFile.writeln("A=M-1");
-    outFile.writeln("M=-1");    // -1 represents True
+    outFile.writeln("M=-1");    
 
     outFile.writeln("(" ~ labelEnd ~ ")");
 }
 
-//  Memory Access (Push/Pop)
+// --- גישה לזיכרון ---
 
 void handlePush(string segment, string index) {
     if (segment == "constant") {
@@ -137,9 +193,9 @@ void handlePush(string segment, string index) {
         outFile.writeln("@" ~ index);
         outFile.writeln("D=A");
         outFile.writeln("@" ~ getSegmentSymbol(segment));
-        outFile.writeln("D=D+M"); // Critical fix: Calculate target address into D instead of A
-        outFile.writeln("A=D");   // Move the safe address to A
-        outFile.writeln("D=M");   // Read the requested value
+        outFile.writeln("D=D+M"); 
+        outFile.writeln("A=D");   
+        outFile.writeln("D=M");   
     } 
     else if (segment == "temp") {
         int addr = 5 + to!int(index);
@@ -147,7 +203,7 @@ void handlePush(string segment, string index) {
         outFile.writeln("D=M");
     } 
     else if (segment == "pointer") {
-        int addr = 3 + to!int(index); // 3 is THIS, 4 is THAT
+        int addr = 3 + to!int(index); 
         outFile.writeln("@" ~ to!string(addr));
         outFile.writeln("D=M");
     } 
@@ -155,18 +211,11 @@ void handlePush(string segment, string index) {
         outFile.writeln("@" ~ currentFileName ~ "." ~ index);
         outFile.writeln("D=M");
     }
-
-    // Push the value in D onto the stack and increment SP
-    outFile.writeln("@SP");
-    outFile.writeln("A=M");
-    outFile.writeln("M=D");
-    outFile.writeln("@SP");
-    outFile.writeln("M=M+1");
+    pushD();
 }
 
 void handlePop(string segment, string index) {
     if (segment == "local" || segment == "argument" || segment == "this" || segment == "that") {
-        // Calculate target address and save it in temporary register R13
         outFile.writeln("@" ~ index);
         outFile.writeln("D=A");
         outFile.writeln("@" ~ getSegmentSymbol(segment));
@@ -174,7 +223,6 @@ void handlePop(string segment, string index) {
         outFile.writeln("@R13");
         outFile.writeln("M=D");
 
-        // Pop the top element and store it in the address held in R13
         popToD();
         outFile.writeln("@R13");
         outFile.writeln("A=M");
@@ -199,14 +247,6 @@ void handlePop(string segment, string index) {
     }
 }
 
-// Helper function to pop element from stack into D register
-void popToD() {
-    outFile.writeln("@SP");
-    outFile.writeln("AM=M-1");
-    outFile.writeln("D=M");
-}
-
-// Helper function to convert segment name to its HACK symbol
 string getSegmentSymbol(string segment) {
     switch(segment) {
         case "local": return "LCL";
@@ -215,4 +255,141 @@ string getSegmentSymbol(string segment) {
         case "that": return "THAT";
         default: return "";
     }
+}
+
+// --- בקרת זרימה (Branching) ---
+
+void handleLabel(string label) {
+    outFile.writeln("(" ~ formatLabel(label) ~ ")");
+}
+
+void handleGoto(string label) {
+    outFile.writeln("@" ~ formatLabel(label));
+    outFile.writeln("0;JMP");
+}
+
+void handleIfGoto(string label) {
+    popToD();
+    outFile.writeln("@" ~ formatLabel(label));
+    outFile.writeln("D;JNE"); // קופץ אם הערך שונה מ-0 (True)
+}
+
+// --- פונקציות (Functions) ---
+
+void handleFunction(string functionName, string numVars) {
+    currentFunctionName = functionName;
+    outFile.writeln("(" ~ functionName ~ ")");
+    
+    int k = to!int(numVars);
+    for (int i = 0; i < k; i++) {
+        outFile.writeln("@0");
+        outFile.writeln("D=A");
+        pushD();
+    }
+}
+
+void handleCall(string functionName, string numArgs) {
+    string retLabel = "RETURN_" ~ functionName ~ "_" ~ to!string(callCounter++);
+    
+    // push return-address
+    outFile.writeln("@" ~ retLabel);
+    outFile.writeln("D=A");
+    pushD();
+    
+    // push LCL, ARG, THIS, THAT
+    string[] segments = ["LCL", "ARG", "THIS", "THAT"];
+    foreach(seg; segments) {
+        outFile.writeln("@" ~ seg);
+        outFile.writeln("D=M");
+        pushD();
+    }
+    
+    // ARG = SP - n - 5
+    outFile.writeln("@SP");
+    outFile.writeln("D=M");
+    outFile.writeln("@" ~ numArgs);
+    outFile.writeln("D=D-A");
+    outFile.writeln("@5");
+    outFile.writeln("D=D-A");
+    outFile.writeln("@ARG");
+    outFile.writeln("M=D");
+    
+    // LCL = SP
+    outFile.writeln("@SP");
+    outFile.writeln("D=M");
+    outFile.writeln("@LCL");
+    outFile.writeln("M=D");
+    
+    // goto f
+    outFile.writeln("@" ~ functionName);
+    outFile.writeln("0;JMP");
+    
+    // (return-address)
+    outFile.writeln("(" ~ retLabel ~ ")");
+}
+
+void handleReturn() {
+    // FRAME = LCL (שמירה ב-R13)
+    outFile.writeln("@LCL");
+    outFile.writeln("D=M");
+    outFile.writeln("@R13");
+    outFile.writeln("M=D");
+
+    // RET = *(FRAME-5) (שמירה ב-R14)
+    outFile.writeln("@5");
+    outFile.writeln("A=D-A");
+    outFile.writeln("D=M");
+    outFile.writeln("@R14");
+    outFile.writeln("M=D");
+
+    // *ARG = pop()
+    popToD();
+    outFile.writeln("@ARG");
+    outFile.writeln("A=M");
+    outFile.writeln("M=D");
+
+    // SP = ARG+1
+    outFile.writeln("@ARG");
+    outFile.writeln("D=M+1");
+    outFile.writeln("@SP");
+    outFile.writeln("M=D");
+
+    // THAT = *(FRAME-1)
+    outFile.writeln("@R13");
+    outFile.writeln("A=M-1");
+    outFile.writeln("D=M");
+    outFile.writeln("@THAT");
+    outFile.writeln("M=D");
+
+    // THIS = *(FRAME-2)
+    outFile.writeln("@R13");
+    outFile.writeln("D=M");
+    outFile.writeln("@2");
+    outFile.writeln("A=D-A");
+    outFile.writeln("D=M");
+    outFile.writeln("@THIS");
+    outFile.writeln("M=D");
+
+    // ARG = *(FRAME-3)
+    outFile.writeln("@R13");
+    outFile.writeln("D=M");
+    outFile.writeln("@3");
+    outFile.writeln("A=D-A");
+    outFile.writeln("D=M");
+    outFile.writeln("@ARG");
+    outFile.writeln("M=D");
+
+    // LCL = *(FRAME-4)
+    outFile.writeln("@R13");
+    outFile.writeln("D=M");
+    outFile.writeln("@4");
+    outFile.writeln("A=D-A");
+    outFile.writeln("D=M");
+    outFile.writeln("@LCL");
+    outFile.writeln("M=D");
+
+    // goto RET
+    outFile.writeln("@R14");
+    outFile.writeln("A=M");
+    outFile.writeln("0;JMP");
 }
