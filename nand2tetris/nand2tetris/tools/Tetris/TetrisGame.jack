@@ -1,0 +1,106 @@
+class TetrisGame {
+    field boolean exit;
+    field Piece currentPiece; 
+    field Board board; 
+    field int nextShapeType; 
+    field int score; 
+    field boolean gameOver; // משתנה חדש שמסמן אם המשחק הסתיים
+
+    constructor TetrisGame new() {
+        let exit = false;
+        let gameOver = false; // בתחילת המשחק כמובן לא פסולים
+        let board = Board.new(); 
+        let nextShapeType = 0;
+        let score = 0;
+        
+        do Screen.setColor(true);
+        do Screen.drawLine(199, 10, 199, 250); 
+        do Screen.drawLine(300, 10, 300, 250); 
+        do Screen.drawLine(199, 250, 300, 250); 
+        
+        do updateScoreDisplay(); 
+
+        let currentPiece = Piece.new(nextShapeType, 4, 0, board);
+        
+        return this;
+    }
+
+    method void updateScoreDisplay() {
+        do Output.moveCursor(2, 2); 
+        do Output.printString("Score: ");
+        do Output.printInt(score);
+        return;
+    }
+
+    // מתודה חדשה שמדפיסה הודעת פסילה בצד שמאל
+    method void displayGameOver() {
+        do Output.moveCursor(7, 2); 
+        do Output.printString("GAME OVER!");
+        do Output.moveCursor(9, 2); 
+        do Output.printString("Press Q to Exit");
+        return;
+    }
+
+    method void run() {
+        var char key;
+        var boolean moved;
+        var int loopCount; 
+        var int linesCleared; 
+        
+        let loopCount = 0;
+
+        while (~exit) { 
+            let key = Keyboard.keyPressed(); 
+            
+            if (key = 81) { let exit = true; } // יציאה תמיד אפשרית עם Q
+            
+            // המשחק יגיב לחצים ויפיל קוביות רק אם השחקן לא נפסל עדיין
+            if (~gameOver) {
+                if (key = 130) { do currentPiece.moveLeft(); }
+                if (key = 131) { do currentPiece.rotate(); }   
+                if (key = 132) { do currentPiece.moveRight(); } 
+                if (key = 133) { do currentPiece.moveDown(); }  
+                
+                let loopCount = loopCount + 1;
+                
+                if (loopCount = 25) { 
+                    let moved = currentPiece.moveDown();
+                    
+                    if (~moved) { 
+                        do currentPiece.occupyBoard(); 
+                        do currentPiece.dispose(); 
+                        
+                        let linesCleared = board.clearLines();
+                        if (linesCleared > 0) {
+                            let score = score + (linesCleared * 100); 
+                            do updateScoreDisplay();
+                        }
+                        
+                        let nextShapeType = nextShapeType + 1;
+                        if (nextShapeType = 3) { let nextShapeType = 0; }
+                        
+                        // יצירת הצורה החדשה
+                        let currentPiece = Piece.new(nextShapeType, 4, 0, board); 
+                        
+                        // בדיקה קריטית: האם הצורה החדשה נוצרת לתוך מקום תפוס?
+                        if (~(currentPiece.canMove(0, 0))) {
+                            let gameOver = true; // סימון שנפסלנו
+                            do displayGameOver(); // הדפסת הודעת סיום המשחק
+                        }
+                    }
+                    let loopCount = 0;
+                }
+            }
+            
+            do Sys.wait(20); 
+        }
+        return;
+    }
+
+    method void dispose() {
+        do board.dispose();
+        do currentPiece.dispose(); 
+        do Memory.deAlloc(this);
+        return;
+    }
+}

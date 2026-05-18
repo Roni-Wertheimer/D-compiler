@@ -1,0 +1,168 @@
+class Piece {
+    field int col, row; 
+    field Array cOffsets, rOffsets; 
+    field Board board;
+    field int shapeType; // שדה חדש כדי לזכור איזו צורה אנחנו
+
+    constructor Piece new(int type, int startCol, int startRow, Board b) {
+        let col = startCol;
+        let row = startRow;
+        let board = b;
+        let shapeType = type; // שומרים את סוג הצורה
+        let cOffsets = Array.new(4);
+        let rOffsets = Array.new(4);
+
+        if (shapeType = 0) { // ריבוע (O)
+            let cOffsets[0] = 0; let rOffsets[0] = 0;
+            let cOffsets[1] = 1; let rOffsets[1] = 0;
+            let cOffsets[2] = 0; let rOffsets[2] = 1;
+            let cOffsets[3] = 1; let rOffsets[3] = 1;
+        }
+        if (shapeType = 1) { // קו (I)
+            let cOffsets[0] = 0; let rOffsets[0] = 0;
+            let cOffsets[1] = 0; let rOffsets[1] = 1;
+            let cOffsets[2] = 0; let rOffsets[2] = 2;
+            let cOffsets[3] = 0; let rOffsets[3] = 3;
+        }
+        if (shapeType = 2) { // צורת טי (T)
+            let cOffsets[0] = 0; let rOffsets[0] = 0;
+            let cOffsets[1] = -1; let rOffsets[1] = 1;
+            let cOffsets[2] = 0; let rOffsets[2] = 1;
+            let cOffsets[3] = 1; let rOffsets[3] = 1;
+        }
+
+        do draw();
+        return this;
+    }
+
+    method boolean canMove(int dCol, int dRow) {
+        var int i, nextC, nextR;
+        let i = 0;
+        while (i < 4) {
+            let nextC = col + cOffsets[i] + dCol;
+            let nextR = row + rOffsets[i] + dRow;
+            if (board.isOccupied(nextC, nextR)) {
+                return false; 
+            }
+            let i = i + 1;
+        }
+        return true;
+    }
+
+    method void draw() {
+        var int i, c, r, screenX, screenY;
+        let i = 0;
+        do Screen.setColor(true);
+        while (i < 4) {
+            let c = col + cOffsets[i];
+            let r = row + rOffsets[i];
+            let screenX = 200 + (c * 10);
+            let screenY = 10 + (r * 10);
+            do Screen.drawRectangle(screenX, screenY, screenX + 9, screenY + 9);
+            let i = i + 1;
+        }
+        return;
+    }
+
+    method void erase() {
+        var int i, c, r, screenX, screenY;
+        let i = 0;
+        do Screen.setColor(false);
+        while (i < 4) {
+            let c = col + cOffsets[i];
+            let r = row + rOffsets[i];
+            let screenX = 200 + (c * 10);
+            let screenY = 10 + (r * 10);
+            do Screen.drawRectangle(screenX, screenY, screenX + 9, screenY + 9);
+            let i = i + 1;
+        }
+        return;
+    }
+
+    // --- הפונקציה החדשה לסיבוב! ---
+    method void rotate() {
+        var Array nextC, nextR;
+        var int i, nC, nR;
+        var boolean isValid;
+
+        // הריבוע לא צריך להסתובב
+        if (shapeType = 0) { return; } 
+
+        let nextC = Array.new(4);
+        let nextR = Array.new(4);
+        let isValid = true;
+
+        let i = 0;
+        while (i < 4) {
+            // סיבוב 90 מעלות (X = -Y, Y = X)
+            let nextC[i] = 0 - rOffsets[i];
+            let nextR[i] = cOffsets[i];
+            
+            let nC = col + nextC[i];
+            let nR = row + nextR[i];
+            
+            // בדיקת התנגשות וירטואלית
+            if (board.isOccupied(nC, nR)) {
+                let isValid = false;
+            }
+            let i = i + 1;
+        }
+
+        // אם הסיבוב חוקי, מעדכנים את המערכים ומציירים
+        if (isValid) {
+            do erase(); 
+            let i = 0;
+            while (i < 4) {
+                let cOffsets[i] = nextC[i];
+                let rOffsets[i] = nextR[i];
+                let i = i + 1;
+            }
+            do draw(); 
+        }
+
+        do nextC.dispose();
+        do nextR.dispose();
+        return;
+    }
+
+    method void moveLeft() {
+        if (canMove(-1, 0)) { 
+            do erase(); let col = col - 1; do draw();
+        }
+        return;
+    }
+
+    method void moveRight() {
+        if (canMove(1, 0)) { 
+            do erase(); let col = col + 1; do draw();
+        }
+        return;
+    }
+
+    method boolean moveDown() {
+        if (canMove(0, 1)) { 
+            do erase(); let row = row + 1; do draw();          
+            return true;
+        }
+        return false;
+    }
+
+    method void occupyBoard() {
+        var int i, c, r;
+        let i = 0;
+        while (i < 4) {
+            let c = col + cOffsets[i];
+            let r = row + rOffsets[i];
+            do board.occupy(c, r);
+            let i = i + 1;
+        }
+        return;
+    }
+
+    method void dispose() {
+        do cOffsets.dispose();
+        do rOffsets.dispose();
+        do Memory.deAlloc(this);
+        return;
+    }
+}
